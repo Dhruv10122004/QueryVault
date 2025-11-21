@@ -194,13 +194,13 @@ def extract_text_from_pdf(pdf_file: BinaryIO) -> Dict[int, str]:
     ]
 
     for method_name, extract_func in extraction_methods:
-        print(f"\n🔍 Trying {method_name}...")
+        print(f"\n Trying {method_name}...")
         page_texts, method_used = extract_func(pdf_file)
         
         if page_texts:
             total_words = sum(len(text.split()) for text in page_texts.values())
             print(f"\n{'='*60}")
-            print(f"✅ Success with {method_name}")
+            print(f"Success with {method_name}")
             print(f"{'='*60}")
             print(f"   Pages extracted: {len(page_texts)}")
             print(f"   Total words: {total_words}")
@@ -232,3 +232,151 @@ Please try:
     print(f"{'='*60}\n")
     
     raise ValueError(error_msg.strip())
+
+def chunk_text(page_texts: Dict[int, str], chunk_size: int = 1000, chunk_overlap: int = 200) -> List[Dict]:
+    """
+    Split text into overlapping chunks for better context preservation.
+    
+    Args:
+        page_texts: Dict of {page_num: text}
+        chunk_size: Max characters per chunk
+        chunk_overlap: Characters to overlap between chunks
+    
+    Returns:
+        List of chunks with metadata:
+        [
+            {
+                'text': 'chunk text...',
+                'page': 1,
+                'chunk_index': 0,
+                'char_count': 950
+            },
+            ...
+        ]
+    """
+    chunks = []
+    chunk_index = 0
+
+    for page_num, page_text in page_texts.items():
+        sentences = re.split(r'(?<=[.!?])\s+', page_text)
+        current_chunk = ""
+        for sentence in sentences:
+            if len(current_chunk) + len(sentence) + 1 > chunk_size and current_chunk:
+                chunks.append({
+                    'text': current_chunk.strip(),
+                    'page': page_num,
+                    'chunk_index': chunk_index,
+                    'char_count': len(current_chunk.strip())
+                })
+
+                overlap_text = current_chunk[-chunk_overlap:] if len(current_chunk) > chunk_overlap else current_chunk
+                current_chunk = overlap_text + " " + sentence
+                chunk_index += 1
+            else:
+                current_chunk += " " + sentence
+        
+        if current_chunk.strip():
+            chunks.append({
+                'text': current_chunk.strip(),
+                'page': page_num,
+                'chunk_index': chunk_index,
+                'char_count': len(current_chunk.strip())
+            })
+            chunk_index += 1
+    print(f"Created {len(chunks)} chunks from {len(page_texts)}")
+    return chunks
+
+def generate_embeddings(texts: List[str]) -> List[List[float]]:
+    """
+    Generate embedding using Cohere
+    Args: 
+        texts: List of strings to embed
+    Returns:
+        List of embeddings (list of floats)
+    """
+
+    try:
+        co = get_cohere_client()
+        batch_size = 90 # cohere has a limit of 100 per request, using 90 to be safe
+        embeddings = []
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i: i+batch_size]
+            response = co.embed(
+                model ="embed-english-v3.0",
+                texts = batch,
+                input_type="search_document"
+            )
+
+            embeddings.extend(response.embeddings)
+            print(f"Total embeddings generated: {len(embeddings)}/{len(texts)}")
+            return embeddings
+    except Exception as e:
+        print(f"Error generating embeddings: {e}")
+        raise
+
+def generate_query_embedding(question: str) -> List[float]:
+    """
+    Generate embedding for a query using Cohere
+    Args:
+        question: Query string
+    Returns:
+        Embedding (list of floats)
+    """
+
+    try:
+        co = get_cohere_client()
+        response = co.embed(
+            model ="embed-english-v3.0",
+            texts = [question],
+            input_type="search_query"
+        )
+
+        return response.embeddings[0]
+    except Exception as e:
+        print(f"Error generating query embedding: {e}")
+        raise
+
+def generate_answer(question: str, context_chunks: List[Dict]) -> str:
+    """
+    Generate answer using Gemini based on retrieved context.
+    
+    Args:
+        question: User's question
+        context_chunks: List of retrieved chunks with 'text' and 'metadata'
+    
+    Returns:
+        Generated answer string
+    """
+
+    try:
+        model = get_gemini_model()
+
+        #combine context from all chunks
+        context = "\n\n".join([f"Source: Page {chunk['page']} Chunk {chunk['chunk_index']}:\n{chunk['text']}" for chunk in context_chunks])
+        # Create prompt
+        prompt = f"""You are a helpful assistant that answers questions based on PDF documents.
+
+Context from the document:
+{context}
+
+Question: {question}
+
+Instructions:
+- Answer the question based ONLY on the context provided above
+- If the answer is not in the context, say "I couldn't find that information in the document."
+- Be concise and specific
+- Cite page numbers when possible
+
+Answer:"""
+        
+        # Generate response
+        response = model.generate_content(prompt)
+        answer = response.text
+        
+        print(f"Generated answer ({len(answer)} chars)")
+        return answer
+        
+    except Exception as e:
+        print(f"Error generating answer: {e}")
+        return f"Sorry, I encountered an error generating the answer: {str(e)}"
