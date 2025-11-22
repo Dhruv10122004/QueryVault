@@ -5,4 +5,6 @@ backend/venv/
 
 __pycache__/
 .vscode/
-backend/.env
+backend/.envtest_pdfs/
+test_pdfs/
+.env
