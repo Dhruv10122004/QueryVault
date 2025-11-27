@@ -60,8 +60,14 @@ def answer_question(question: str, top_k: int = 3) -> Dict:
             }
         
         print("\nFormatting resources")
+        
+        # Prepare sources for display
         sources = []
+        # Prepare context chunks for generate_answer (flatten the metadata structure)
+        context_chunks = []
+        
         for match in matches:
+            # For displaying to user
             source = {
                 'text': match['metadata'].get('text', '')[:200] + '...',
                 'score': round(match['score'], 3),
@@ -70,9 +76,18 @@ def answer_question(question: str, top_k: int = 3) -> Dict:
             }
             sources.append(source)
             print(f"Page {source['page']} (score: {source['score']})")
+            
+            # For passing to generate_answer (flatten structure)
+            context_chunk = {
+                'text': match['metadata'].get('text', ''),
+                'page': match['metadata'].get('page', 'N/A'),
+                'chunk_index': match['metadata'].get('chunk_index', 0),
+                'filename': match['metadata'].get('filename', 'N/A')
+            }
+            context_chunks.append(context_chunk)
 
         print("\nGenerating answer with Gemini...")
-        answer = generate_answer(question, matches)
+        answer = generate_answer(question, context_chunks)
 
         print(f"\n{'='*60}")
         print(f"Answer Generated!")
@@ -91,9 +106,11 @@ def answer_question(question: str, top_k: int = 3) -> Dict:
     
     except Exception as e:
         print(f"\nError in answering question: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             'success': False,
             'question': question,
-            'answer': "An error occurred while processing your question.",
+            'answer': f"An error occurred while processing your question: {str(e)}",
             'sources': []
         }
