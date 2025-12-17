@@ -1,2 +1,2 @@
-# pdf-chatbot
-RAG-based PDF chatbot
+# QueryVault 
+RAG-based PDF and YouTube chatbot
