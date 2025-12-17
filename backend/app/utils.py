@@ -310,7 +310,7 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
 
             embeddings.extend(response.embeddings)
             print(f"Total embeddings generated: {len(embeddings)}/{len(texts)}")
-            return embeddings
+        return embeddings
     except Exception as e:
         print(f"Error generating embeddings: {e}")
         raise

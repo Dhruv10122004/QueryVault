@@ -64,3 +64,23 @@ class HealthResponse(BaseModel):
     # Health check response
     status: str
     services: dict
+
+class YouTubeUploadRequest(BaseModel):
+    url: str = Field(..., min_length=10, max_length=200)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            }
+        }
+
+class YouTubeUploadResponse(BaseModel):
+    success: bool
+    video_id: Optional[str]
+    video_title: Optional[str]
+    video_url: str
+    duration: int
+    total_chunks: int
+    vectors_stored: int
+    message: str

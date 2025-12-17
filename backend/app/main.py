@@ -10,7 +10,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from .schemas import UploadResponse, QueryRequest, QueryResponse, HealthResponse
+from .schemas import UploadResponse, QueryRequest, QueryResponse, HealthResponse, YouTubeUploadResponse, YouTubeUploadRequest
 from .ingest import process_pdf
 from .query import answer_question
 from .db import get_index_stats
@@ -40,7 +40,8 @@ async def root():
         "message": "PDF Chatbot API is running! ",
         "docs": "Visit /docs for interactive API documentation",
         "endpoints": {
-            "upload": "POST /upload - Upload a PDF",
+            "upload_pdf": "POST /upload - Upload a PDF",
+            "upload_youtube": "POST /upload/youtube - Process YouTube video",
             "query": "POST /query - Ask questions",
             "health": "GET /health - Service health check"
         }
@@ -105,7 +106,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     file_size = file.file.tell()
     file.file.seek(0)
 
-    max_size = 10 * 1024 * 1024  # 10 MB limit
+    max_size = 25 * 1024 * 1024  # 10 MB limit
     if file_size > max_size:
         raise HTTPException(
             status_code=400,
@@ -168,6 +169,17 @@ async def clear_database():
             detail=f"Error clearing database: {str(e)}"
         )
     
+@app.post("/upload/youtube", response_model=YouTubeUploadResponse, tags=["PDF Processing"])
+async def upload_youtube(request: YouTubeUploadRequest):
+    from .youtube import process_youtube
+    result = process_youtube(request.url)
+    if not result['success']:
+        raise HTTPException(
+            status_code = 500,
+            detail = result['message']
+        )
+    return result
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

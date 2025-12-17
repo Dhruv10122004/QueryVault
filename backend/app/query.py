@@ -61,26 +61,42 @@ def answer_question(question: str, top_k: int = 3) -> Dict:
         
         print("\nFormatting resources")
         
-        # Prepare sources for display
         sources = []
-        # Prepare context chunks for generate_answer (flatten the metadata structure)
         context_chunks = []
         
         for match in matches:
-            # For displaying to user
-            source = {
-                'text': match['metadata'].get('text', '')[:200] + '...',
-                'score': round(match['score'], 3),
-                'page': match['metadata'].get('page', 'N/A'),
-                'filename': match['metadata'].get('filename', 'N/A')
-            }
-            sources.append(source)
-            print(f"Page {source['page']} (score: {source['score']})")
+            metadata = match.get('metadata', {})
+            content_type = metadata.get('content_type', 'pdf')  # default to pdf for backward compatibility
             
-            # For passing to generate_answer (flatten structure)
+            if content_type == 'youtube':
+                # YouTube source
+                source = {
+                    'type': 'youtube',
+                    'text': metadata.get('text', '')[:200] + '...',
+                    'score': round(match['score'], 3),
+                    'video_title': metadata.get('video_title', 'N/A'),
+                    'video_url': metadata.get('video_url', 'N/A'),
+                    'timestamp': metadata.get('timestamp_start', 0),
+                    'timestamp_formatted': f"{metadata.get('timestamp_start', 0)//60}:{metadata.get('timestamp_start', 0)%60:02d}"
+                }
+                print(f"Video: {source['video_title']} at {source['timestamp_formatted']} (score: {source['score']})")
+            else:
+                # PDF source
+                source = {
+                    'type': 'pdf',
+                    'text': metadata.get('text', '')[:200] + '...',
+                    'score': round(match['score'], 3),
+                    'page': metadata.get('page', 'N/A'),
+                    'filename': metadata.get('filename', 'N/A')
+                }
+                print(f"Page {source['page']} (score: {source['score']})")
+            
+            sources.append(source)
+            
+            # For context (flatten for generate_answer)
             context_chunk = {
-                'text': match['metadata'].get('text', ''),
-                'page': match['metadata'].get('page', 'N/A'),
+                'text': match['metadata'].get('text', ''),    
+                'page': match['metadata'].get('page', 'N/A'),    
                 'chunk_index': match['metadata'].get('chunk_index', 0),
                 'filename': match['metadata'].get('filename', 'N/A')
             }
