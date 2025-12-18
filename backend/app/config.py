@@ -11,7 +11,7 @@ class Config:
     MAX_VIDEO_DURATION_HOURS = 3
     MAX_VIDEO_DURATION_SECONDS = MAX_VIDEO_DURATION_HOURS * 3600
 
-    USE_WHISPER_FALLBACK = True
+    USE_WHISPER_FALLBACK = False # not downloaded whisper model yet
 
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))
     CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 200))

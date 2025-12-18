@@ -77,7 +77,7 @@ def answer_question(question: str, top_k: int = 3) -> Dict:
                     'video_title': metadata.get('video_title', 'N/A'),
                     'video_url': metadata.get('video_url', 'N/A'),
                     'timestamp': metadata.get('timestamp_start', 0),
-                    'timestamp_formatted': f"{metadata.get('timestamp_start', 0)//60}:{metadata.get('timestamp_start', 0)%60:02d}"
+                    'timestamp_formatted': f"{int(metadata.get('timestamp_start', 0)) // 60}:{int(metadata.get('timestamp_start', 0)) % 60:02d}"
                 }
                 print(f"Video: {source['video_title']} at {source['timestamp_formatted']} (score: {source['score']})")
             else:

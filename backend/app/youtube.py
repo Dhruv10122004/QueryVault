@@ -7,21 +7,22 @@ import re
 import tempfile
 from typing import Dict, List, Optional
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
+from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound, VideoUnavailable
 import yt_dlp
-import whisper
+# import whisper
 from .config import Config
 from .utils import generate_embeddings
 from .db import upsert_vectors
 
 _whisper_model = None
+ytt_api = YouTubeTranscriptApi()
 
 def get_whisper_model():
     """Lazy loading whisper model."""
     global _whisper_model
     if _whisper_model is None:
         print("Loading Whisper model... This may take a moment on first run.")
-        _whisper_model = whisper.load_model("base")
+        # _whisper_model = whisper.load_model("base")
     return _whisper_model
 
 def extract_video_id(url: str) -> str:
@@ -57,51 +58,72 @@ def get_video_info(video_id: str) -> Dict:
             return {
                 'video_id': video_id,
                 'title': info.get('title', 'Unknown'),
-                'channel': info.get('duration', 'Unknown'),
+                'channel': info.get('channel', 'Unknown'),  # Fixed: was 'duration'
                 'duration': info.get('duration', 0),
                 'url': f"https://www.youtube.com/watch?v={video_id}"
             }
     except Exception as e:
         raise ValueError(f"Error fetching video info: {str(e)}")
 
-def fetch_existing_transript(videoid: str) -> Optional[List[Dict]]:
-    """for fetching transcripts"""
+def fetch_existing_transcript(video_id: str) -> Optional[List[Dict]]:
+    """Fetch transcripts using the correct API method"""
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(videoid)
-        # trying to find english transcript first
+        # Use fetch directly for English
         try:
-            transcript = transcript_list.find_transcript(['en'])
-            print(f"Found english transcript ({len(transcript.fetch())} segments)")
-            return transcript.fetch()
-        except:
+            print("Attempting to fetch English transcript...")
+            transcript = ytt_api.fetch(video_id, languages=['en'])
+            print(f"✓ Found English transcript ({len(transcript)} segments)")
+            return transcript
+        except NoTranscriptFound:
+            print("No English transcript found, trying other languages...")
             pass
-
-        # get any available transcript and translate to english
-        try:
-            transcript = transcript_list.find_transcript(['hi', 'es', 'fr', 'de', 'ja', 'ko', 'zh'])
-            original_lang = transcript.language_code
-            print(f"No english transcript found. Found {original_lang} transcript")
-            print(f"Translating {original_lang} --> English..")
-
-            #Translating to english
-            translated = transcript.translate('en')
-            result = translated.fetch()
-
-            print(f"translated {len((result))} segments to english")
-            return result
-        except:
-            print(f"Translation failed, using original {original_lang} transcript")
-            return transcript.fetch()
         
-    except (TranscriptsDisabled, NoTranscriptFound) as e:
+        # Try to get any available transcript
+        try:
+            # Get list of available transcripts
+            transcript_list = ytt_api().list_transcripts(video_id)
+            
+            # Try to find a manually created transcript first
+            for transcript in transcript_list:
+                if not transcript.is_generated:
+                    print(f"Found manual transcript in {transcript.language}")
+                    if transcript.language_code != 'en':
+                        print(f"Translating {transcript.language_code} -> English...")
+                        translated = transcript.translate('en')
+                        result = translated.fetch()
+                    else:
+                        result = transcript.fetch()
+                    print(f"✓ Retrieved {len(result)} segments")
+                    return result
+            
+            # If no manual transcript, use auto-generated
+            for transcript in transcript_list:
+                if transcript.is_generated:
+                    print(f"Found auto-generated transcript in {transcript.language}")
+                    if transcript.language_code != 'en':
+                        print(f"Translating {transcript.language_code} -> English...")
+                        translated = transcript.translate('en')
+                        result = translated.fetch()
+                    else:
+                        result = transcript.fetch()
+                    print(f"✓ Retrieved {len(result)} segments")
+                    return result
+                    
+        except Exception as e:
+            print(f"Error accessing transcript list: {e}")
+            pass
+            
+    except (TranscriptsDisabled, NoTranscriptFound, VideoUnavailable) as e:
         print(f"No transcripts available: {e}")
         return None
     except Exception as e:
-        print(f"Error fetching transcript: {e}")
+        print(f"Unexpected error fetching transcript: {e}")
         return None
+    
+    return None
 
-def download_audio(videoid: str, output_path: str) -> str:
-    """download audio from youtube video"""
+def download_audio(video_id: str, output_path: str) -> str:
+    """Download audio from youtube video"""
     try:
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -115,34 +137,39 @@ def download_audio(videoid: str, output_path: str) -> str:
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([f"https://www.youtube.com/watch?v={videoid}"])
+            ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
 
         return output_path + ".mp3"
     except Exception as e:
-        raise ValueError(f"failed to download audio: {str(e)}")
+        raise ValueError(f"Failed to download audio: {str(e)}")
 
-def transcribe_with_whisper(videoid: str) -> List[Dict]:
-    print("generating transcript from the audio")
+def transcribe_with_whisper(video_id: str) -> List[Dict]:
+    """Generate transcript using Whisper (fallback method)"""
+    print("Generating transcript from audio using Whisper...")
     temp_dir = tempfile.mkdtemp()
     audio_path = os.path.join(temp_dir, "audio")
 
     try:
         print("Downloading audio...")
-        audio_file = download_audio(videoid, audio_path)
+        audio_file = download_audio(video_id, audio_path)
 
-        print("transcribing audio")
+        print("Transcribing audio with Whisper...")
         model = get_whisper_model()
+        
+        if model is None:
+            raise ValueError("Failed to load Whisper model")
+            
         result = model.transcribe(audio_file, language='en', verbose=False)
 
         transcript = []
         for segment in result['segments']:
             transcript.append({
-                'text': segment['text'].strip(),
-                'start': segment['start'],
-                'duration': segment['end'] - segment['start']
+                'text': segment.text.strip(),
+                'start': segment.start,
+                'duration': segment.end - segment.start
             })
 
-        print(f"transcription complete ({len(transcript)}) segments")
+        print(f"✓ Transcription complete ({len(transcript)} segments)")
         return transcript
     finally:
         try:
@@ -152,17 +179,23 @@ def transcribe_with_whisper(videoid: str) -> List[Dict]:
         except Exception as e:
             pass
 
-def get_transcript(videoid: str) -> List[Dict]:
-    transcript = fetch_existing_transript(videoid)
+def FETCH(video_id: str) -> List[Dict]:
+    """Get transcript - try YouTube API first, fallback to Whisper if enabled"""
+    transcript = fetch_existing_transcript(video_id)
+    
     if transcript:
         return transcript
     
     if Config.USE_WHISPER_FALLBACK:
-        print("no captions available - will generate transcript locally")
-        return transcribe_with_whisper(videoid)
+        print("\n  No captions available - will generate transcript locally using Whisper")
+        print("  This requires Whisper to be installed and may take several minutes")
+        print(" Set USE_WHISPER_FALLBACK=False in config.py to disable this\n")
+        return transcribe_with_whisper(video_id)
     else:
-        raise ValueError("This video has no captions/transcript available\n" \
-        "Enable USE_WHISPER_FALLBACK in config to generate transcript using Whisper model.")
+        raise ValueError(
+            "This video has no captions/transcript available.\n"
+            "Enable USE_WHISPER_FALLBACK in config.py to generate transcript using Whisper model."
+        )
     
 def chunk_transcript_by_time(
     transcript: List[Dict],
@@ -170,6 +203,7 @@ def chunk_transcript_by_time(
     chunk_duration: int = Config.VIDEO_CHUNK_DURATION,
     overlap: int = Config.VIDEO_CHUNK_OVERLAP
 ) -> List[Dict]:
+    """Split transcript into time-based chunks"""
     chunks = []
     current_time = 0
     video_duration = video_info['duration']
@@ -177,12 +211,14 @@ def chunk_transcript_by_time(
     while current_time < video_duration:
         chunk_end = min(current_time + chunk_duration, video_duration)
         chunk_texts = []
+        
         for segment in transcript:
-            segment_start = segment['start']
-            segment_end = segment['start'] + segment['duration']
+            segment_start = segment.start
+            segment_end = segment.start + segment.duration
 
+            # Include segment if it overlaps with current chunk
             if segment_start < chunk_end and segment_end > current_time:
-                chunk_texts.append(segment['text'])
+                chunk_texts.append(segment.text)
         
         if chunk_texts:
             chunks.append({
@@ -197,52 +233,57 @@ def chunk_transcript_by_time(
             })
 
         current_time += chunk_duration - overlap
-    print(f"Created {len(chunks)} time-based chunks from transcript")
+        
+    print(f"✓ Created {len(chunks)} time-based chunks from transcript")
     return chunks
 
 def process_youtube(url: str) -> Dict:
+    """Main function to process a YouTube video"""
     try:
         print(f"\n{'='*60}")
         print(f"Processing YouTube Video")
         print(f"{'='*60}\n")
 
-        print("extracting video id")
-        videoid = extract_video_id(url)
-        print(f"video id: {videoid}")
+        print("Extracting video ID...")
+        video_id = extract_video_id(url)
+        print(f"✓ Video ID: {video_id}\n")
 
-        print("fetching video info")
-        videoinfo = get_video_info(videoid)
-        print(f" Title: {videoinfo['title']}")
-        print(f" Channel: {videoinfo['channel']}")
-        print(f" Duration: {videoinfo['duration']//60}m {videoinfo['duration']%60}s\n")
+        print("Fetching video info...")
+        video_info = get_video_info(video_id)
+        print(f" Title: {video_info['title']}")
+        print(f"Channel: {video_info['channel']}")
+        print(f"Duration: {video_info['duration']//60}m {video_info['duration']%60}s\n")
 
-        if videoinfo['duration'] > Config.MAX_VIDEO_DURATION_SECONDS:
-            raise ValueError(f"video too long")
+        if video_info['duration'] > Config.MAX_VIDEO_DURATION_SECONDS:
+            raise ValueError(
+                f"Video too long ({video_info['duration']//60}m). "
+                f"Maximum allowed: {Config.MAX_VIDEO_DURATION_HOURS}h"
+            )
         
-        print("getting transcript")
-        transcript = get_transcript(videoid)
-        totalwords = sum(len(seg['text'].split()) for seg in transcript)
-        print(f"transcript: {len(transcript)} segments, -{totalwords} words\n")
+        print("Getting transcript...")
+        transcript = FETCH(video_id)
+        total_words = sum(len(seg.text.split()) for seg in transcript)
+        print(f" Transcript: {len(transcript)} segments, {total_words} words\n")
 
         print("Chunking transcript by time segments...")
-        chunks = chunk_transcript_by_time(transcript, videoinfo)
+        chunks = chunk_transcript_by_time(transcript, video_info)
 
-        print("Generating embeddings...\n")
+        print("Generating embeddings...")
         chunk_texts = [chunk['text'] for chunk in chunks]
         embeddings = generate_embeddings(chunk_texts)
 
-        print("preparing vectors for storage...")
+        print("Preparing vectors for storage...")
         vectors = []
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
             vector = {
-                'id': f"{videoid}_chunk_{i}",
+                'id': f"{video_id}_chunk_{i}",
                 'values': embedding,
                 'metadata': {
                     'content_type': 'youtube',
-                    'video_id': videoinfo['video_id'],
-                    'video_title': videoinfo['title'],
+                    'video_id': video_info['video_id'],
+                    'video_title': video_info['title'],
                     'video_url': chunk['video_url'],
-                    'channel': videoinfo['channel'],
+                    'channel': video_info['channel'],
                     'text': chunk['text'],
                     'timestamp_start': chunk['timestamp_start'],
                     'timestamp_end': chunk['timestamp_end'],
@@ -252,31 +293,33 @@ def process_youtube(url: str) -> Dict:
             }
             vectors.append(vector)
         
-        print("storing vectors in pinecone...")
+        print("Storing vectors in Pinecone...")
         vectors_stored = upsert_vectors(vectors)
 
         print(f"\n{'='*60}")
-        print(f"YouTube Processing Complete!")
+        print(f"✓ YouTube Processing Complete!")
         print(f"{'='*60}")
-        print(f"   Title: {videoinfo['title']}")
-        print(f"   Duration: {videoinfo['duration']//60}m {videoinfo['duration']%60}s")
+        print(f"   Title: {video_info['title']}")
+        print(f"   Duration: {video_info['duration']//60}m {video_info['duration']%60}s")
         print(f"   Chunks created: {len(chunks)}")
         print(f"   Vectors stored: {vectors_stored}")
         print(f"{'='*60}\n")
 
         return {
             'success': True,
-            'video_id': videoid,
-            'video_title': videoinfo['title'],
-            'video_url': videoinfo['url'],
-            'duration': videoinfo['duration'],
+            'video_id': video_id,
+            'video_title': video_info['title'],
+            'video_url': video_info['url'],
+            'duration': video_info['duration'],
             'total_chunks': len(chunks),
             'vectors_stored': vectors_stored,
-            'message': f"Successfully processed: {videoinfo['title']}"
+            'message': f"Successfully processed: {video_info['title']}"
         }
     
     except Exception as e:
-        print(f"Error processing YouTube video: {e}")
+        print(f"\n Error processing YouTube video: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             'success': False,
             'video_id': None,
