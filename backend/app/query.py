@@ -98,7 +98,8 @@ def answer_question(question: str, top_k: int = 3) -> Dict:
                 'text': match['metadata'].get('text', ''),    
                 'page': match['metadata'].get('page', 'N/A'),    
                 'chunk_index': match['metadata'].get('chunk_index', 0),
-                'filename': match['metadata'].get('filename', 'N/A')
+                'filename': match['metadata'].get('filename', 'N/A'),
+                'metadata': match['metadata']  # Add this line
             }
             context_chunks.append(context_chunk)
 

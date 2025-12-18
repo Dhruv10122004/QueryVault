@@ -348,25 +348,59 @@ def generate_answer(question: str, context_chunks: List[Dict]) -> str:
     Returns:
         Generated answer string
     """
-
     try:
         model = get_gemini_model()
 
-        #combine context from all chunks
-        context = "\n\n".join([f"Source: Page {chunk['page']} Chunk {chunk['chunk_index']}:\n{chunk['text']}" for chunk in context_chunks])
-        # Create prompt
-        prompt = f"""You are a helpful assistant that answers questions based on PDF documents.
+        # Detect content type from chunks
+        has_youtube = any(chunk.get('metadata', {}).get('content_type') == 'youtube' 
+                         for chunk in context_chunks)
+        has_pdf = any(chunk.get('metadata', {}).get('content_type') != 'youtube' 
+                     for chunk in context_chunks)
+        
+        # Determine source description
+        if has_youtube and has_pdf:
+            source_type = "PDF documents and YouTube videos"
+        elif has_youtube:
+            source_type = "YouTube video transcripts"
+        else:
+            source_type = "PDF documents"
 
-Context from the document:
+        # Format context based on content type
+        context_parts = []
+        for chunk in context_chunks:
+            metadata = chunk.get('metadata', {})
+            content_type = metadata.get('content_type', 'pdf')
+            
+            if content_type == 'youtube':
+                video_title = metadata.get('video_title', 'Unknown Video')
+                timestamp = metadata.get('timestamp_start', 0)
+                time_formatted = f"{int(timestamp) // 60}:{int(timestamp) % 60:02d}"
+                context_parts.append(
+                    f"Source: YouTube - '{video_title}' at {time_formatted}:\n{chunk['text']}"
+                )
+            else:
+                page = chunk.get('page', 'N/A')
+                chunk_idx = chunk.get('chunk_index', 0)
+                context_parts.append(
+                    f"Source: PDF - Page {page}, Chunk {chunk_idx}:\n{chunk['text']}"
+                )
+        
+        context = "\n\n".join(context_parts)
+
+        # Create adaptive prompt
+        prompt = f"""You are a helpful assistant that answers questions based on provided content.
+
+Context from {source_type}:
 {context}
 
 Question: {question}
 
 Instructions:
 - Answer the question based ONLY on the context provided above
-- If the answer is not in the context, say "I couldn't find that information in the document."
+- If the answer is not in the context, say "I couldn't find that information in the provided content."
 - Be concise and specific
-- Cite page numbers when possible
+- When referencing sources, mention whether it's from a PDF (with page number) or YouTube video (with timestamp)
+- Synthesize information from multiple sources if relevant
 
 Answer:"""
         
