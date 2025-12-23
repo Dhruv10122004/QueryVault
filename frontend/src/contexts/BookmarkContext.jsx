@@ -4,10 +4,10 @@ const BookmarkContext = createContext();
 export function BookmarkProvider({ children }) {
     const [bookmarks, setBookmarks] = useState([]);
     
-    const addBookmarks = useCallback((message) => {
+    const addBookmark = useCallback((message) => {
         setBookmarks(prev => {
             if(prev.some(b => b.id === message.id)) return prev;
-            return [...prev, { ...message, bookmarketAt: Date.now()}];
+            return [...prev, { ...message, bookmarkedAt: Date.now()}];
         });
     }, []);
 
@@ -27,7 +27,7 @@ export function BookmarkProvider({ children }) {
         <BookmarkContext.Provider
         value={{
             bookmarks,
-            addBookmarks,
+            addBookmark,
             removeBookmark,
             isBookmarked,
             clearBookmarks

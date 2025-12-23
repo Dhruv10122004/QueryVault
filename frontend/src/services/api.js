@@ -23,7 +23,7 @@ export const uploadPDF = async(file, onProgess) => {
         },
         onUploadProgress: (progressEvent) => {
             const percentCompleted = Math.round(
-                (progressEvent.loaded = 100) / progressEvent.total
+                (progressEvent.loaded * 100) / progressEvent.total
             );
             onProgess?.(percentCompleted);
         },
