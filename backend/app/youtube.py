@@ -81,7 +81,7 @@ def fetch_existing_transcript(video_id: str) -> Optional[List[Dict]]:
         # Try to get any available transcript
         try:
             # Get list of available transcripts
-            transcript_list = ytt_api().list_transcripts(video_id)
+            transcript_list = ytt_api.list(video_id)
             
             # Try to find a manually created transcript first
             for transcript in transcript_list:
@@ -93,7 +93,7 @@ def fetch_existing_transcript(video_id: str) -> Optional[List[Dict]]:
                         result = translated.fetch()
                     else:
                         result = transcript.fetch()
-                    print(f"✓ Retrieved {len(result)} segments")
+                    print(f" Retrieved {len(result)} segments")
                     return result
             
             # If no manual transcript, use auto-generated
@@ -106,7 +106,7 @@ def fetch_existing_transcript(video_id: str) -> Optional[List[Dict]]:
                         result = translated.fetch()
                     else:
                         result = transcript.fetch()
-                    print(f"✓ Retrieved {len(result)} segments")
+                    print(f" Retrieved {len(result)} segments")
                     return result
                     
         except Exception as e:
@@ -296,14 +296,11 @@ def process_youtube(url: str) -> Dict:
         print("Storing vectors in Pinecone...")
         vectors_stored = upsert_vectors(vectors)
 
-        print(f"\n{'='*60}")
-        print(f"✓ YouTube Processing Complete!")
-        print(f"{'='*60}")
+        print(f" YouTube Processing Complete!")
         print(f"   Title: {video_info['title']}")
         print(f"   Duration: {video_info['duration']//60}m {video_info['duration']%60}s")
         print(f"   Chunks created: {len(chunks)}")
         print(f"   Vectors stored: {vectors_stored}")
-        print(f"{'='*60}\n")
 
         return {
             'success': True,
