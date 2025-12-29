@@ -233,6 +233,57 @@ Please try:
     
     raise ValueError(error_msg.strip())
 
+def chunk_text_smart(page_texts: Dict[int, str], chunk_size: int = 2000, chunk_overlap: int = 400) -> List[Dict]:
+    """
+    Smart chunking that preserves document structure.
+    - Respects paragraph boundaries
+    - Maintains context across chunks
+    - Preserves section relationships
+    """
+    chunks = []
+    chunk_index = 0
+
+    for page_num, page_text in page_texts.items():
+        paragraphs = re.split(r'\n\s*\n', page_text)
+        
+        current_chunk = ""
+        current_chunk_paragraphs = []
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+        
+            if len(current_chunk) + len(para) > chunk_size and current_chunk:
+                chunks.append({
+                    'text': current_chunk.strip(),
+                    'page': page_num,
+                    'chunk_index': chunk_index,
+                    'char_count': len(current_chunk.strip()),
+                    'paragraph_count': len(current_chunk_paragraphs)
+                })
+                
+                overlap_text = " ".join(current_chunk_paragraphs[-2:]) if len(current_chunk_paragraphs) >= 2 else current_chunk_paragraphs[-1] if current_chunk_paragraphs else ""
+                current_chunk = overlap_text + " " + para if overlap_text else para
+                current_chunk_paragraphs = [para]
+                chunk_index += 1
+            else:
+                current_chunk += "\n\n" + para if current_chunk else para
+                current_chunk_paragraphs.append(para)
+        
+        if current_chunk.strip():
+            chunks.append({
+                'text': current_chunk.strip(),
+                'page': page_num,
+                'chunk_index': chunk_index,
+                'char_count': len(current_chunk.strip()),
+                'paragraph_count': len(current_chunk_paragraphs)
+            })
+            chunk_index += 1
+    
+    print(f"Created {len(chunks)} smart chunks from {len(page_texts)} pages")
+    return chunks
+
 def chunk_text(page_texts: Dict[int, str], chunk_size: int = 1000, chunk_overlap: int = 200) -> List[Dict]:
     """
     Split text into overlapping chunks for better context preservation.
@@ -337,35 +388,27 @@ def generate_query_embedding(question: str) -> List[float]:
         print(f"Error generating query embedding: {e}")
         raise
 
-def generate_answer(question: str, context_chunks: List[Dict]) -> str:
+def generate_answer_with_history(
+    question: str, 
+    context_chunks: List[Dict],
+    conversation_history: str = None,
+    is_follow_up: bool = False
+) -> str:
     """
-    Generate answer using Gemini based on retrieved context.
-    
-    Args:
-        question: User's question
-        context_chunks: List of retrieved chunks with 'text' and 'metadata'
-    
-    Returns:
-        Generated answer string
+    Generate answer with conversation history awareness
     """
     try:
         model = get_gemini_model()
 
-        # Detect content type from chunks
         has_youtube = any(chunk.get('metadata', {}).get('content_type') == 'youtube' 
                          for chunk in context_chunks)
         has_pdf = any(chunk.get('metadata', {}).get('content_type') != 'youtube' 
                      for chunk in context_chunks)
         
-        # Determine source description
-        if has_youtube and has_pdf:
-            source_type = "PDF documents and YouTube videos"
-        elif has_youtube:
-            source_type = "YouTube video transcripts"
-        else:
-            source_type = "PDF documents"
-
-        # Format context based on content type
+        source_type = "YouTube video transcripts" if has_youtube and not has_pdf else \
+                     "PDF documents and YouTube videos" if has_youtube and has_pdf else \
+                     "PDF documents"
+        
         context_parts = []
         for chunk in context_chunks:
             metadata = chunk.get('metadata', {})
@@ -379,16 +422,35 @@ def generate_answer(question: str, context_chunks: List[Dict]) -> str:
                     f"Source: YouTube - '{video_title}' at {time_formatted}:\n{chunk['text']}"
                 )
             else:
-                page = chunk.get('page', 'N/A')
-                chunk_idx = chunk.get('chunk_index', 0)
+                page = metadata.get('page', 'N/A')
                 context_parts.append(
-                    f"Source: PDF - Page {page}, Chunk {chunk_idx}:\n{chunk['text']}"
+                    f"Source: PDF - Page {page}:\n{chunk['text']}"
                 )
         
         context = "\n\n".join(context_parts)
 
-        # Create adaptive prompt
-        prompt = f"""You are a helpful assistant that answers questions based on provided content.
+        if is_follow_up and conversation_history:
+            prompt = f"""You are a helpful AI assistant analyzing {source_type}.
+
+Previous conversation:
+{conversation_history}
+
+Current context from documents:
+{context}
+
+Current question: {question}
+
+Instructions:
+- This is a FOLLOW-UP question - interpret it in the context of the previous conversation
+- Resolve pronouns (it, this, that, they) using the conversation history
+- Answer based on BOTH the previous context and new document excerpts
+- If the question asks for clarification or more details, expand on previous answers
+- Be concise but complete
+- Cite sources when relevant
+
+Answer:"""
+        else:
+            prompt = f"""You are a helpful assistant that answers questions based on provided content.
 
 Context from {source_type}:
 {context}
@@ -400,15 +462,13 @@ Instructions:
 - If the answer is not in the context, say "I couldn't find that information in the provided content."
 - Be concise and specific
 - When referencing sources, mention whether it's from a PDF (with page number) or YouTube video (with timestamp)
-- Synthesize information from multiple sources if relevant
 
 Answer:"""
         
-        # Generate response
         response = model.generate_content(prompt)
         answer = response.text
         
-        print(f"Generated answer ({len(answer)} chars)")
+        print(f"Generated answer ({len(answer)} chars, follow-up: {is_follow_up})")
         return answer
         
     except Exception as e:

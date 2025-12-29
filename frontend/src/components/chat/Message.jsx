@@ -1,4 +1,5 @@
 import { User, Bot } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import BookmarkButton from '../common/BookmarkButton';
 import SourceCard from './SourceCard';
 
@@ -27,7 +28,34 @@ export default function Message({ message, onSourceNavigate }) {
                   : 'bg-light-hover dark:bg-dark-hover'
               }`}
             >
-              <p className="whitespace-pre-wrap">{message.content}</p>
+              {isUser ? (
+                <p className="whitespace-pre-wrap">{message.content}</p>
+              ) : (
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <ReactMarkdown
+                    components={{
+                      // Customize rendering of markdown elements
+                      p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />,
+                      strong: ({node, ...props}) => <strong className="font-semibold" {...props} />,
+                      em: ({node, ...props}) => <em className="italic" {...props} />,
+                      ul: ({node, ...props}) => <ul className="list-disc ml-4 mb-2" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal ml-4 mb-2" {...props} />,
+                      li: ({node, ...props}) => <li className="mb-1" {...props} />,
+                      code: ({node, inline, ...props}) => 
+                        inline ? (
+                          <code className="bg-light-bg dark:bg-dark-bg px-1 py-0.5 rounded text-sm" {...props} />
+                        ) : (
+                          <code className="block bg-light-bg dark:bg-dark-bg p-2 rounded text-sm overflow-x-auto" {...props} />
+                        ),
+                      h1: ({node, ...props}) => <h1 className="text-xl font-bold mb-2" {...props} />,
+                      h2: ({node, ...props}) => <h2 className="text-lg font-bold mb-2" {...props} />,
+                      h3: ({node, ...props}) => <h3 className="text-base font-bold mb-2" {...props} />,
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                </div>
+              )}
             </div>
 
             {/* Sources (only for bot responses) */}

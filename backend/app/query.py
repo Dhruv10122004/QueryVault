@@ -3,73 +3,56 @@ Question answering logic
 Handles: question -> embedding -> similarity search -> context retrieval -> answer generation
 """
 
+import re
 from typing import List, Dict
-from .utils import generate_query_embedding, generate_answer
+from .utils import generate_query_embedding, generate_answer_with_history
 from .db import search_vectors
+from .conversation import conversation_manager
 
-def answer_question(question: str, top_k: int = 3) -> Dict:
+def answer_question(question: str, top_k: int = 3, session_id: str = None) -> Dict:
     """
-    Answer a question using RAG (Retrieval-Augmented Generation).
-    
-    Workflow:
-    1. Generate embedding for the question
-    2. Search Pinecone for similar chunks
-    3. Retrieve context from matches
-    4. Generate answer using Gemini with context
-    5. Return answer with sources
-    
-    Args:
-        question: User's question
-        top_k: Number of similar chunks to retrieve (default: 3)
-    
-    Returns:
-        Dictionary with answer and sources:
-        {
-            'success': True,
-            'question': 'What is the refund policy?',
-            'answer': 'According to the document...',
-            'sources': [
-                {
-                    'text': 'chunk text...',
-                    'score': 0.89,
-                    'page': 5,
-                    'filename': 'doc.pdf'
-                },
-                ...
-            ]
-        }
+    Answer question with follow-up support
     """
-
     try:
         print(f"\n{'='*60}")
         print(f"Question: {question}")
+        if session_id:
+            print(f"Session ID: {session_id}")
         print(f"{'='*60}\n")
 
-        print("Generating query embedding...")
-        query_embedding = generate_query_embedding(question)
+        is_follow_up = detect_follow_up(question) if session_id else False
+        search_query = expand_query_with_context(question, session_id) if is_follow_up else question
+        
+        print(f"Follow-up detected: {is_follow_up}")
+        if is_follow_up:
+            print(f"Expanded query for search: {search_query[:200]}...")
 
-        print(f"\nSearching for top {top_k} similar chunks...")
+        query_embedding = generate_query_embedding(search_query)
         matches = search_vectors(query_embedding, top_k=top_k)
 
         if not matches:
-            return {
+            response = {
                 'success': True,
                 'question': question,
-                'answer': "I couldn't find any relevant information in the uploaded documents.",
-                'sources': []
+                'answer': "I couldn't find relevant information in the uploaded documents.",
+                'sources': [],
+                'is_follow_up': is_follow_up
             }
-        
-        print("\nFormatting resources")
+            
+            if session_id:
+                conversation_manager.add_message(session_id, 'user', question)
+                conversation_manager.add_message(session_id, 'assistant', response['answer'])
+            
+            return response
         
         sources = []
         context_chunks = []
         
         for match in matches:
             metadata = match.get('metadata', {})
-            content_type = metadata.get('content_type', 'pdf')  # default to pdf for backward compatibility
+            content_type = metadata.get('content_type', 'pdf')
             
             if content_type == 'youtube':
-                # YouTube source
                 source = {
                     'type': 'youtube',
                     'text': metadata.get('text', '')[:200] + '...',
@@ -79,9 +62,7 @@ def answer_question(question: str, top_k: int = 3) -> Dict:
                     'timestamp': metadata.get('timestamp_start', 0),
                     'timestamp_formatted': f"{int(metadata.get('timestamp_start', 0)) // 60}:{int(metadata.get('timestamp_start', 0)) % 60:02d}"
                 }
-                print(f"Video: {source['video_title']} at {source['timestamp_formatted']} (score: {source['score']})")
             else:
-                # PDF source
                 source = {
                     'type': 'pdf',
                     'text': metadata.get('text', '')[:200] + '...',
@@ -89,45 +70,100 @@ def answer_question(question: str, top_k: int = 3) -> Dict:
                     'page': metadata.get('page', 'N/A'),
                     'filename': metadata.get('filename', 'N/A')
                 }
-                print(f"Page {source['page']} (score: {source['score']})")
             
             sources.append(source)
-            
-            # For context (flatten for generate_answer)
-            context_chunk = {
-                'text': match['metadata'].get('text', ''),    
-                'page': match['metadata'].get('page', 'N/A'),    
-                'chunk_index': match['metadata'].get('chunk_index', 0),
-                'filename': match['metadata'].get('filename', 'N/A'),
-                'metadata': match['metadata']  # Add this line
-            }
-            context_chunks.append(context_chunk)
+            context_chunks.append({
+                'text': match['metadata'].get('text', ''),
+                'metadata': match['metadata']
+            })
 
-        print("\nGenerating answer with Gemini...")
-        answer = generate_answer(question, context_chunks)
+        conversation_history = None
+        if session_id:
+            conversation_history = conversation_manager.get_conversation_context(session_id)
 
-        print(f"\n{'='*60}")
-        print(f"Answer Generated!")
-        print(f"{'='*60}")
-        print(f"   Question: {question}")
-        print(f"   Sources used: {len(sources)}")
-        print(f"   Answer length: {len(answer)} chars")
-        print(f"{'='*60}\n")
+        answer = generate_answer_with_history(
+            question=question,
+            context_chunks=context_chunks,
+            conversation_history=conversation_history,
+            is_follow_up=is_follow_up
+        )
+
+        print(f"\nAnswer Generated! (Follow-up: {is_follow_up})")
         
-        return {
+        response = {
             'success': True,
             'question': question,
             'answer': answer,
-            'sources': sources
+            'sources': sources,
+            'is_follow_up': is_follow_up
         }
+        
+        if session_id:
+            conversation_manager.add_message(session_id, 'user', question)
+            conversation_manager.add_message(session_id, 'assistant', answer, sources)
+        
+        return response
     
     except Exception as e:
-        print(f"\nError in answering question: {e}")
+        print(f"\nError: {e}")
         import traceback
         traceback.print_exc()
         return {
             'success': False,
             'question': question,
-            'answer': f"An error occurred while processing your question: {str(e)}",
-            'sources': []
+            'answer': f"Error: {str(e)}",
+            'sources': [],
+            'is_follow_up': False
         }
+
+def enhance_with_context(matches: List[Dict], query_embedding: List[float]) -> List[Dict]:
+    """
+    Enhance retrieved chunks with surrounding context from same document
+    """
+    by_document = {}
+    for match in matches:
+        metadata = match['metadata']
+        filename = metadata.get('filename', 'unknown')
+        page = metadata.get('page', 0)
+        chunk_idx = metadata.get('chunk_index', 0)
+        
+        key = f"{filename}_page_{page}"
+        if key not in by_document:
+            by_document[key] = []
+        by_document[key].append((chunk_idx, match))
+    
+    enhanced = []
+    for matches_group in by_document.values():
+        matches_group.sort(key=lambda x: x[0])  
+        for chunk_idx, match in matches_group:
+            enhanced.append(match)
+    
+    return enhanced
+
+def detect_follow_up(question: str) -> bool:
+    follow_up_patterns = [
+        r'\b(it|this|that|they|them|these|those)\b',
+        r'\b(what about|how about|tell me more|explain|elaborate)\b',
+        r'\b(also|additionally|furthermore|moreover)\b',
+        r'^(and|but|so|because|however)',
+    ]
+    
+    question_lower = question.lower()
+    return any(re.search(pattern, question_lower) for pattern in follow_up_patterns)
+
+def expand_query_with_context(question: str, session_id: str) -> str:
+    if not detect_follow_up(question):
+        return question
+    
+    conv_context = conversation_manager.get_conversation_context(session_id)
+    if not conv_context:
+        return question
+
+    expanded = f"""Given the previous conversation:
+{conv_context}
+
+Current question: {question}
+
+Interpret this question in the context of the previous discussion."""
+    
+    return expanded

@@ -6,7 +6,7 @@ pdf upload -> text extraction -> text chunking -> embedding generation -> vector
 import os
 from typing import Dict
 from fastapi import UploadFile
-from .utils import extract_text_from_pdf, chunk_text, generate_embeddings
+from .utils import extract_text_from_pdf, chunk_text_smart, generate_embeddings
 from .db import upsert_vectors
 
 def process_pdf(file: UploadFile) -> Dict:
@@ -43,7 +43,7 @@ def process_pdf(file: UploadFile) -> Dict:
         chunk_size = int(os.getenv("CHUNK_SIZE", 1000))
         chunk_overlap = int(os.getenv("CHUNK_OVERLAP", 200))
 
-        chunks = chunk_text(page_texts, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        chunks = chunk_text_smart(page_texts, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
         if not chunks:
             raise ValueError("No text chunks created from extracted text.\n")

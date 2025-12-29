@@ -25,6 +25,7 @@ class QueryRequest(BaseModel):
     # Request to ask a question about uploaded PDFs
     question: str = Field(..., min_length=3, max_length=500)
     top_k: Optional[int] = Field(default=3, ge=1, le=10)
+    session_id: Optional[str] = None
 
     class Config:
         json_schema_extra = {
@@ -40,6 +41,8 @@ class QueryResponse(BaseModel):
     question: str
     answer: str
     sources: List[dict]
+    is_follow_up: bool
+    session_id: Optional[str] = None
 
     class Config:
         json_schema_extra = {
@@ -84,3 +87,6 @@ class YouTubeUploadResponse(BaseModel):
     total_chunks: int
     vectors_stored: int
     message: str
+
+class ConversationClearRequest(BaseModel):
+    session_id: str

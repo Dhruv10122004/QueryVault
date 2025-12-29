@@ -1,8 +1,11 @@
 # Right now all functions are synchronous. For scaling purposes in future we can make them async.
 # Async functions would be useful while scaling because we can handle multiple requests concurrently.
+import uuid
+from .conversation import ConversationManager
+
 """
 FastAPI application entry point.
-Defines all API endpoints and handles HTTP requests.
+Defines all API endpoints and handles HTTP requests.                       
 """
 
 import os
@@ -10,11 +13,11 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from .schemas import UploadResponse, QueryRequest, QueryResponse, HealthResponse, YouTubeUploadResponse, YouTubeUploadRequest
+from .schemas import UploadResponse, QueryRequest, QueryResponse, HealthResponse, YouTubeUploadResponse, YouTubeUploadRequest, ConversationClearRequest                                                                   
 from .ingest import process_pdf
 from .query import answer_question
-from .db import get_index_stats
-
+from .db import get_index_stats, delete_all_vectors
+           
 load_dotenv()
 
 app = FastAPI(
@@ -113,6 +116,11 @@ async def upload_pdf(file: UploadFile = File(...)):
             detail=f"File too large. Maximum allowed size is 10MB, got {file_size / 1024 / 1024:.1f}MB"
         )
     
+    try:
+        delete_all_vectors()
+    except Exception as e:
+        print(f"Warning: Could not clear databse: {e}")
+    
     result = process_pdf(file)
 
     if not result['success']:
@@ -135,10 +143,13 @@ async def query_pdf(request: QueryRequest):
     
     Returns answer with source citations.
     """
+
+    session_id = request.session_id or str(uuid.uuid4())
     
     result = answer_question(
         question=request.question,
-        top_k=request.top_k
+        top_k=request.top_k,
+        session_id=session_id
     )
 
     if not result['success']:
@@ -146,7 +157,7 @@ async def query_pdf(request: QueryRequest):
             status_code=500,
             detail=result.get('message', 'An error occurred while processing your question')
         )
-    
+    result['session_id'] = session_id
     return result
 
 @app.delete("/clear", tags=["Maintenance"])
@@ -172,13 +183,50 @@ async def clear_database():
 @app.post("/upload/youtube", response_model=YouTubeUploadResponse, tags=["PDF Processing"])
 async def upload_youtube(request: YouTubeUploadRequest):
     from .youtube import process_youtube
+    try:
+        delete_all_vectors()
+    except Exception as e:
+        print(f"Warning: Could not clear databse: {e}")
+
     result = process_youtube(request.url)
     if not result['success']:
         raise HTTPException(
-            status_code = 500,
-            detail = result['message']
+            status_code=500,
+            detail=result['message']
         )
     return result
+
+@app.post("/conversation/clear", tags=["Conversation"])
+async def clear_conversation(request: ConversationClearRequest):
+    """Clear conversation history for a session"""
+    try:
+        ConversationManager.clear_conversation(request.session_id)
+        return {
+            "success": True,
+            "message": "Conversation cleared",
+            "session_id": request.session_id
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+@app.get("/conversation/{session_id}", tags=["Conversation"])
+async def get_conversation(session_id: str):
+    """Get conversation history"""
+    try:
+        context = ConversationManager.get_conversation_context(session_id)
+        return {
+            "success": True,
+            "session_id": session_id,
+            "context": context
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 if __name__ == "__main__":
     import uvicorn
