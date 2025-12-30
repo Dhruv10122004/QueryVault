@@ -1,9 +1,0 @@
-{
-  "build": {
-    "root": "backend"
-  },
-  "deploy": {
-    "numReplicas": 1,
-    "startCommand": "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
-  }
-}
