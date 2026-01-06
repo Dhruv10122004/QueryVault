@@ -6,7 +6,6 @@ certifi==2025.11.12
 cffi==2.0.0
 charset-normalizer==3.4.4
 click==8.3.0
-cohere==5.20.0
 cryptography==46.0.3
 defusedxml==0.7.1
 distro==1.9.0
@@ -38,7 +37,6 @@ joblib==1.5.3
 MarkupSafe==2.1.5
 mpmath==1.3.0
 networkx==3.6.1
-numpy==2.4.0
 openai==2.7.2
 packaging==24.2
 pdf2image==1.17.0
@@ -67,8 +65,6 @@ regex==2025.11.3
 requests==2.32.5
 rsa==4.9.1
 safetensors==0.7.0
-scikit-learn==1.8.0
-scipy==1.16.3
 sentence-transformers==5.2.0
 setuptools==70.2.0
 shellingham==1.5.4
@@ -79,7 +75,6 @@ sympy==1.14.0
 tenacity==9.1.2
 threadpoolctl==3.6.0
 tokenizers==0.22.1
-torch==2.9.1+cpu
 tqdm==4.67.1
 transformers==4.57.3
 typer-slim==0.20.0
@@ -92,3 +87,7 @@ uvicorn==0.38.0
 websockets==15.0.1
 youtube-transcript-api==1.2.3
 yt-dlp==2025.12.8
+torch
+numpy
+scikit-learn
+scipy
