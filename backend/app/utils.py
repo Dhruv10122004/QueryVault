@@ -5,7 +5,7 @@ import os
 import re
 from typing import List, Dict, BinaryIO, Tuple
 from pypdf import PdfReader
-import cohere
+from sentence_transformers import SentenceTransformer
 import google.generativeai as genai
 from dotenv import load_dotenv
 import pdfplumber
@@ -14,21 +14,18 @@ from pdf2image import convert_from_bytes
 
 load_dotenv()
 
-_cohere_client = None
+_sentence_transformer_model = None
 _gemini_model = None
 
-def get_cohere_client():
-    """Get or create cohere client"""
-    global _cohere_client
+def get_st():
+    global _sentence_transformer_model
 
-    if _cohere_client is None:
-        apikey = os.getenv("COHERE_API_KEY")
-        if not apikey:
-            raise ValueError("COHERE_API_KEY not found in environment")
-        
-        _cohere_client = cohere.Client(apikey)
-        print("Cohere client initialized")
-    return _cohere_client
+    if _sentence_transformer_model is None:
+        model_name = os.getenv("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM-L6-v2")
+        print(f"loading sentence transformer model: {model_name}")
+        _sentence_transformer_model = SentenceTransformer(model_name)
+        print("Sentence transformer model loaded")
+    return _sentence_transformer_model
 
 def get_gemini_model():
     global _gemini_model
@@ -338,52 +335,27 @@ def chunk_text(page_texts: Dict[int, str], chunk_size: int = 1000, chunk_overlap
     return chunks
 
 def generate_embeddings(texts: List[str]) -> List[List[float]]:
-    """
-    Generate embedding using Cohere
-    Args: 
-        texts: List of strings to embed
-    Returns:
-        List of embeddings (list of floats)
-    """
 
     try:
-        co = get_cohere_client()
-        batch_size = 90 # cohere has a limit of 100 per request, using 90 to be safe
+        model = get_st()
+        batch_size = 32
         embeddings = []
 
         for i in range(0, len(texts), batch_size):
             batch = texts[i: i+batch_size]
-            response = co.embed(
-                model ="embed-english-v3.0",
-                texts = batch,
-                input_type="search_document"
-            )
-
-            embeddings.extend(response.embeddings)
+            batch_embeddings = model.encode(batch, convert_to_numpy=True).tolist()
             print(f"Total embeddings generated: {len(embeddings)}/{len(texts)}")
+            embeddings.extend(batch_embeddings)
         return embeddings
     except Exception as e:
         print(f"Error generating embeddings: {e}")
         raise
 
 def generate_query_embedding(question: str) -> List[float]:
-    """
-    Generate embedding for a query using Cohere
-    Args:
-        question: Query string
-    Returns:
-        Embedding (list of floats)
-    """
-
     try:
-        co = get_cohere_client()
-        response = co.embed(
-            model ="embed-english-v3.0",
-            texts = [question],
-            input_type="search_query"
-        )
-
-        return response.embeddings[0]
+        model = get_st()
+        embedding = model.encode([question], convert_to_numpy=True)
+        return embedding[0].tolist()
     except Exception as e:
         print(f"Error generating query embedding: {e}")
         raise
