@@ -1,16 +1,10 @@
 [phases.setup]
-nixPkgs = [
-  'python311',
-  'tesseract',
-  'poppler_utils'
-]
+nixPkgs = ['python311', 'tesseract', 'poppler_utils']
 
 [phases.install]
 cmds = [
-  'python -m ensurepip --upgrade',
-  'python -m pip install --upgrade pip',
-  'python -m pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu',
-  'python -m pip install --no-cache-dir -r backend/requirements.txt'
+  'pip install --break-system-packages --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu',
+  'pip install --break-system-packages --no-cache-dir -r backend/requirements.txt'
 ]
 
 [start]
