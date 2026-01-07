@@ -3,8 +3,8 @@ nixPkgs = ['python311', 'tesseract', 'poppler_utils']
 
 [phases.install]
 cmds = [
-    'pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu',
-    'pip install --no-cache-dir -r backend/requirements.txt'
+  'python -m pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu',
+  'python -m pip install --no-cache-dir -r backend/requirements.txt'
 ]
 
 [start]
