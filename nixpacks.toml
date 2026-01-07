@@ -3,9 +3,11 @@ nixPkgs = ['python311', 'tesseract', 'poppler_utils']
 
 [phases.install]
 cmds = [
-  'pip install --break-system-packages --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu',
-  'pip install --break-system-packages --no-cache-dir -r backend/requirements.txt'
+  'python -m venv /opt/venv',
+  '/opt/venv/bin/pip install --upgrade pip',
+  '/opt/venv/bin/pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu',
+  '/opt/venv/bin/pip install --no-cache-dir -r backend/requirements.txt'
 ]
 
 [start]
-cmd = 'cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT'
+cmd = '/opt/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --app-dir backend'
