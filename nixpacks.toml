@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ['python311', 'tesseract', 'poppler_utils']
+
+[phases.install]
+cmds = [
+    'pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu',
+    'pip install --no-cache-dir -r backend/requirements.txt'
+]
+
+[start]
+cmd = 'cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT'

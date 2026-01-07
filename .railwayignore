@@ -1,0 +1,15 @@
+frontend/
+test_pdfs/
+*.md
+README.md
+LICENSE
+.git/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+venv/
+testenv/
+.env
+*.log
+.DS_Store
