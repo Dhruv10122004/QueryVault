@@ -1,5 +1,10 @@
 [phases.setup]
-nixPkgs = ['python311', 'tesseract', 'poppler_utils', 'gcc-unwrapped', 'stdenv.cc.cc.lib']
+nixPkgs = [
+  'python311',
+  'tesseract',
+  'poppler_utils',
+  'stdenv.cc.cc.lib'
+]
 
 [phases.install]
 cmds = [
