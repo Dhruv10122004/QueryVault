@@ -1,15 +1,15 @@
 [phases.setup]
 nixPkgs = [
-  'python311',
+  'python311Full',
   'tesseract',
-  'poppler_utils',
-  'stdenv.cc.cc.lib'
+  'poppler_utils'
 ]
 
 [phases.install]
 cmds = [
   'python -m venv /opt/venv',
   '/opt/venv/bin/pip install --upgrade pip',
+  '/opt/venv/bin/pip install --no-cache-dir numpy==1.26.4',
   '/opt/venv/bin/pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu',
   '/opt/venv/bin/pip install --no-cache-dir -r backend/requirements.txt'
 ]
